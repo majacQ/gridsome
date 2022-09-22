@@ -43,29 +43,38 @@ class Schema {
   }
 
   createContext () {
-    const context = {
+    return {
       store: createStoreActions(this._app.store),
       pages: createPagesAction(this._app.pages),
       config: this._app.config,
-      assets: this._app.assets,
-      // TODO: remove before 1.0
-      queue: this._app.assets
+      assets: this._app.assets
     }
-
-    deprecate.property(context, 'queue', 'The property context.queue is deprecated. Use context.assets instead.')
-
-    return context
   }
 
   runQuery (docOrQuery, variables = {}, operationName) {
     const context = this.createContext()
-    const func = typeof docOrQuery === 'string' ? graphql : execute
 
     if (!this._schema) {
       throw new Error(`GraphQL schema is not generated yet...`)
     }
 
-    return func(this._schema, docOrQuery, undefined, context, variables, operationName)
+    if (typeof docOrQuery === 'string') {
+      return graphql({
+        schema: this._schema,
+        source: docOrQuery,
+        contextValue: context,
+        variableValues: variables,
+        operationName
+      })
+    }
+
+    return execute({
+      schema: this._schema,
+      document: docOrQuery,
+      contextValue: context,
+      variableValues: variables,
+      operationName
+    })
   }
 }
 

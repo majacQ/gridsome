@@ -1,16 +1,10 @@
 const path = require('path')
 const autoBind = require('auto-bind')
 const hirestime = require('hirestime')
-const { info } = require('../utils/log')
+const { info, log } = require('../utils/log')
 const isRelative = require('is-relative')
 const { version } = require('../../package.json')
-const { deprecate } = require('../utils/deprecate')
-
-const {
-  SyncHook,
-  AsyncSeriesHook,
-  SyncWaterfallHook
-} = require('tapable')
+const { AsyncSeriesHook, SyncWaterfallHook } = require('tapable')
 
 const { BOOTSTRAP_FULL } = require('../utils/constants')
 
@@ -28,8 +22,7 @@ class App {
       beforeBootstrap: new AsyncSeriesHook([]),
       bootstrap: new AsyncSeriesHook(['app']),
       renderQueue: new SyncWaterfallHook(['renderQueue']),
-      redirects: new SyncWaterfallHook(['redirects', 'renderQueue']),
-      server: new SyncHook(['server'])
+      redirects: new SyncWaterfallHook(['redirects', 'renderQueue'])
     }
 
     autoBind(this)
@@ -57,7 +50,7 @@ class App {
           const timer = hirestime()
 
           const done = () => {
-            info(`${hook.label || hook.name} - ${timer(hirestime.S)}s`)
+            log(`${hook.label || hook.name} - ${timer(hirestime.S)}s`)
             if (callback) callback()
           }
 
@@ -77,7 +70,7 @@ class App {
 
     await this.hooks.bootstrap.promise()
 
-    info(`Bootstrap finish - ${timer(hirestime.S)}s`)
+    log(`Bootstrap finish - ${timer(hirestime.S)}s`)
 
     this.isBootstrapped = true
 
@@ -92,7 +85,6 @@ class App {
     const loadConfig = require('./loadConfig')
     const Plugins = require('./Plugins')
     const Store = require('../store/Store')
-    const Server = require('../server/Server')
     const Schema = require('./Schema')
     const AssetsQueue = require('./queue/AssetsQueue')
     const Codegen = require('./codegen')
@@ -102,7 +94,6 @@ class App {
     this.config = await loadConfig(this.context, this.options)
     this.plugins = new Plugins(this)
     this.store = new Store(this)
-    this.server = new Server(this)
     this.schema = new Schema(this)
     this.assets = new AssetsQueue(this)
     this.pages = new Pages(this)
@@ -111,11 +102,7 @@ class App {
 
     this.config = Object.freeze(this.config)
 
-    // TODO: remove before 1.0
-    this.queue = this.assets
-    deprecate.property(this, 'queue', 'The property app.queue is deprecated. Use app.assets instead.')
-
-    info(`Initializing plugins...`)
+    log(`Initializing plugins...`)
 
     this.plugins.initialize()
 
@@ -137,10 +124,6 @@ class App {
     }
 
     await this.compiler.initialize()
-
-    if (this.config.mode === 'development') {
-      await this.server.initialize()
-    }
 
     this.isInitialized = true
 

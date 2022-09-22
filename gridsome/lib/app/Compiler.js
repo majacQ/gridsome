@@ -15,11 +15,18 @@ class Compiler {
     this._resolve
     this._resolveSync
     this._compiler = null
+    this._buildDependencies = []
 
     this.hooks = {
       cacheIdentifier: new SyncWaterfallHook(['identifier']),
       chainWebpack: new AsyncSeriesHook(['chain', 'env']),
       done: new SyncHook(['columns', 'env'])
+    }
+  }
+
+  addBuildDependency (path) {
+    if (!this._buildDependencies.includes(path)) {
+      this._buildDependencies.push(path)
     }
   }
 
@@ -85,9 +92,7 @@ class Compiler {
 
         if (stats.hasErrors()) {
           const errors = stats.stats
-            // .flatMap(stats => stats.compilation.errors) only exists in Node v11+
-            .map(stats => stats.compilation.errors)
-            .reduce((acc, errors) => acc.concat(errors), [])
+            .flatMap(stats => stats.compilation.errors)
             .map(err => err.error || err)
 
           return reject(errors[0])
@@ -116,7 +121,7 @@ class Compiler {
     const resolvedChain = chain || await this.resolveChainableWebpackConfig(isServer)
     const configureWebpack = (this._app.plugins._listeners.configureWebpack || []).slice()
     const configFilePath = this._app.resolve('webpack.config.js')
-    const merge = require('webpack-merge')
+    const { merge } = require('webpack-merge')
 
     if (fs.existsSync(configFilePath)) {
       configureWebpack.push(require(configFilePath))

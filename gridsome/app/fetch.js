@@ -53,9 +53,8 @@ export default (route, options = {}) => {
     })
   }
 
-  const hashMeta = document
-    .querySelector('meta[name="gridsome:hash"]')
-    .getAttribute('content')
+  const { __INITIAL_STATE__ = {} } = global
+  const { hash } = __INITIAL_STATE__
 
   return new Promise((resolve, reject) => {
     const usePath = route.name === NOT_FOUND_NAME ? NOT_FOUND_PATH : route.path
@@ -78,10 +77,10 @@ export default (route, options = {}) => {
 
     return isLoaded[jsonPath]
       .then(res => {
-        if (res.hash !== hashMeta) {
+        if (res.hash !== hash) {
           reject(
             createError(
-              `Hash did not match: json=${res.hash}, document=${hashMeta}`,
+              `Hash did not match: json=${res.hash}, document=${hash}`,
               'INVALID_HASH'
             )
           )

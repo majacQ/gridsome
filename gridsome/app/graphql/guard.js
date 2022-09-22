@@ -6,9 +6,13 @@ import { getResults, setResults, formatError } from './shared'
 export default (to, from, next) => {
   if (process.isServer) return next()
 
+  const { __INITIAL_STATE__ = {} } = global
+  const { data, context } = __INITIAL_STATE__
+
   // A custom route added by `router.addRoutes()`.
   if (to.meta && to.meta.__custom) {
-    global.__INITIAL_STATE__ = null
+    delete __INITIAL_STATE__.data
+    delete __INITIAL_STATE__.context
     return next()
   }
 
@@ -21,11 +25,12 @@ export default (to, from, next) => {
       : next()
   }
 
-  // The data already exists in the markup for the initial page.
-  if (process.isProduction && global.__INITIAL_STATE__) {
-    const { context } = global.__INITIAL_STATE__
-    setResults(to.path, global.__INITIAL_STATE__)
-    global.__INITIAL_STATE__ = null
+  // Data and context already exists in the markup for the initial page.
+  if (process.isProduction && data && context) {
+    setResults(to.path, { data, context })
+
+    delete __INITIAL_STATE__.data
+    delete __INITIAL_STATE__.context
 
     return context.__notFound && to.name !== NOT_FOUND_NAME
       ? next({ name: NOT_FOUND_NAME, params: { 0: to.path }})

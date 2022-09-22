@@ -2,7 +2,7 @@ const path = require('path')
 const LRU = require('lru-cache')
 const hash = require('hash-sum')
 const validate = require('../validate')
-const { parse, findDeprecatedUsages } = require('graphql')
+const { parse, NoDeprecatedCustomRule } = require('graphql')
 const { deprecate } = require('../../../../utils/deprecate')
 
 const cache = new LRU({ max: 1000 })
@@ -10,6 +10,8 @@ const cache = new LRU({ max: 1000 })
 module.exports = async function (source, map) {
   const { config, store, schema } = process.GRIDSOME
   const resourcePath = this.resourcePath
+
+  this.cacheable(false)
 
   // add dependency to now.js to re-run
   // this loader when store has changed
@@ -81,7 +83,7 @@ module.exports = async function (source, map) {
 
   cache.set(cacheKey, res)
 
-  findDeprecatedUsages(schema.getSchema(), ast).forEach(err => {
+  validate(schema.getSchema(), ast, [NoDeprecatedCustomRule]).forEach(err => {
     let line = 0
     let column = 0
 

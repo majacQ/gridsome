@@ -10,20 +10,17 @@ exports.processImage = async function ({
   height,
   filePath,
   destPath,
-  cachePath,
   imagesConfig,
   options = {}
 }) {
-  if (cachePath && await fs.exists(cachePath)) {
-    return fs.copy(cachePath, destPath)
-  } else if (await fs.exists(destPath)) {
+  if (fs.existsSync(destPath)) {
     return
   }
 
+  await fs.ensureDir(path.dirname(destPath))
+
   const { ext } = path.parse(filePath)
   const { backgroundColor, defaultQuality = 75 } = imagesConfig
-
-  const buffer = await fs.readFile(filePath)
 
   if (['.png', '.jpeg', '.jpg', '.webp'].includes(ext.toLowerCase())) {
     const config = {
@@ -34,11 +31,16 @@ exports.processImage = async function ({
       jpegProgressive: true
     }
 
-    const sharpImage = sharp(buffer)
     const compress = imagesConfig.compress !== false && config.quality < 100
 
+    const pipeline = sharp()
+    const readStream = fs.createReadStream(filePath)
+    const writeStream = fs.createWriteStream(destPath)
+
+    readStream.pipe(pipeline).pipe(writeStream)
+
     // Rotate based on EXIF Orientation tag
-    sharpImage.rotate()
+    pipeline.rotate()
 
     if (
       (config.width && config.width <= width) ||
@@ -56,19 +58,19 @@ exports.processImage = async function ({
         resizeOptions.background = backgroundColor
       }
 
-      sharpImage.resize(resizeOptions)
+      pipeline.resize(resizeOptions)
     }
 
     if (compress) {
       if (/\.png$/.test(ext)) {
-        sharpImage.png({
+        pipeline.png({
           compressionLevel: config.pngCompressionLevel,
           quality: config.quality
         })
       }
 
       if (/\.jpe?g$/.test(ext)) {
-        sharpImage.jpeg({
+        pipeline.jpeg({
           progressive: config.jpegProgressive,
           quality: config.quality,
           mozjpeg: true
@@ -76,43 +78,35 @@ exports.processImage = async function ({
       }
 
       if (/\.webp$/.test(ext)) {
-        sharpImage.webp({
+        pipeline.webp({
           quality: config.quality
         })
       }
     }
 
-    const sharpBuffer = await sharpImage.toBuffer()
-    const sharpLength = Buffer.byteLength(sharpBuffer)
-    const initLength = Buffer.byteLength(buffer)
+    return new Promise((resolve, reject) => {
+      writeStream.on('finish', async () => {
+        const stats = await fs.stat(filePath)
+        const destStats = await fs.stat(destPath)
 
-    return fs.outputFile(
-      destPath,
-      sharpLength < initLength
-        ? sharpBuffer
-        : buffer
-    )
+        // Ensures that the resulting file size
+        // is not larger than the original file.
+        if (stats.size < destStats.size) {
+          await fs.copy(filePath, destPath, { overwrite: true, errorOnExist: false })
+        }
+
+        resolve()
+      }).on('error', reject)
+    })
   }
 
-  return fs.outputFile(destPath, buffer)
+  await fs.copy(filePath, destPath, { overwrite: true, errorOnExist: false })
 }
 
-exports.process = async function ({
-  queue,
-  context,
-  cacheDir,
-  imagesConfig
-}) {
+exports.process = async function ({ queue, context, imagesConfig }) {
   await pMap(queue, async set => {
-    const cachePath = cacheDir ? path.join(cacheDir, set.filename) : null
-
     try {
-      await exports.processImage({
-        destPath: set.destPath,
-        imagesConfig,
-        cachePath,
-        ...set
-      })
+      await exports.processImage({ ...set, imagesConfig })
     } catch (err) {
       const relPath = path.relative(context, set.filePath)
       throw new Error(`Failed to process image ${relPath}. ${err.message}`)

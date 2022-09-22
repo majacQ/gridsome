@@ -53,19 +53,6 @@ module.exports = function createNodesSchema (schemaComposer, store) {
       [fieldName]: typeComposer.getResolver('findOne'),
       [allFieldName]: typeComposer.getResolver('findManyPaginated')
     })
-
-    // TODO: remove this field before 1.0
-    const oldAllFieldName = `all${typeName}`
-
-    if (
-      allFieldName !== oldAllFieldName &&
-      !schemaComposer.Query.hasField(oldAllFieldName)
-    ) {
-      schemaComposer.Query.setField(oldAllFieldName, {
-        ...typeComposer.getResolver('findManyPaginated'),
-        deprecationReason: `Use Query.${allFieldName} instead.`
-      })
-    }
   }
 
   createBelongsTo(schemaComposer, store)
@@ -152,6 +139,7 @@ function createInferredFields (typeComposer, fieldDefs, fieldTypes) {
     if (!typeComposer.hasField(options.fieldName)) {
       typeComposer.setField(options.fieldName, fieldType)
       typeComposer.setFieldExtensions(options.fieldName, options.extensions)
+      typeComposer.setFieldDirectives(options.fieldName, options.directives)
 
       if (isPlainObject(options.value) && !isRefFieldDefinition(options.value)) {
         addFieldExtensions(typeComposer, options.fieldName, options.value)
@@ -165,8 +153,11 @@ function addFieldExtensions (typeComposer, fieldName, fieldDefs) {
 
   if (fieldTypeComposer instanceof ObjectTypeComposer) {
     for (const key in fieldDefs) {
-      const { fieldName, extensions, value } = fieldDefs[key]
+      const { fieldName, extensions, directives, value } = fieldDefs[key]
+      const fieldDirectives = fieldTypeComposer.getFieldDirectives(fieldName)
+
       fieldTypeComposer.extendFieldExtensions(fieldName, extensions)
+      fieldTypeComposer.setFieldDirectives(fieldName, [...fieldDirectives, ...directives])
 
       if (isPlainObject(value) && !isRefFieldDefinition(value)) {
         addFieldExtensions(fieldTypeComposer, fieldName, value)
@@ -327,9 +318,11 @@ function createReferenceFields (schemaComposer, typeComposer, collection) {
 
   typeComposer.addFields(fields)
 
-  mapValues(collection._refs, ({ extensions = {}}, fieldName) => {
+  mapValues(collection._refs, ({ extensions = {}, directives = []}, fieldName) => {
     if (typeComposer.hasField(fieldName)) {
+      const fieldDirectives = typeComposer.getFieldDirectives(fieldName)
       typeComposer.extendFieldExtensions(fieldName, extensions)
+      typeComposer.setFieldDirectives(fieldName, [...fieldDirectives, ...directives])
     }
   })
 }

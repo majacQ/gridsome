@@ -1,13 +1,28 @@
 const path = require('path')
+const chalk = require('chalk')
 const fs = require('fs-extra')
 const Joi = require('@hapi/joi')
 const crypto = require('crypto')
 const dotenv = require('dotenv')
 const isRelative = require('is-relative')
 const colorString = require('color-string')
+const enhancedResolve = require('enhanced-resolve')
 const { deprecate } = require('../utils/deprecate')
 const { defaultsDeep, camelCase, isString, isFunction } = require('lodash')
 const { internalRE, transformerRE, SUPPORTED_IMAGE_TYPES } = require('../utils/constants')
+const { requireEsModule } = require('../utils')
+
+const resolve = enhancedResolve.create.sync({
+  extensions: ['.js', '.ts']
+})
+
+const tryResolve = (ctx, p) => {
+  try {
+    return resolve(ctx, p)
+  } catch (err) {
+    return undefined
+  }
+}
 
 const builtInPlugins = [
   path.resolve(__dirname, '../plugins/vue-components'),
@@ -23,8 +38,6 @@ module.exports = async (context, options = {}) => {
   Object.assign(process.env, env)
 
   const resolve = (...p) => path.join(context, ...p)
-  const customConfig = options.config || options.localConfig
-  const configPath = resolve('gridsome.config.js')
   const args = options.args || {}
   const config = {}
   const plugins = []
@@ -43,11 +56,23 @@ module.exports = async (context, options = {}) => {
     }
   }
 
-  const localConfig = customConfig
-    ? customConfig
-    : fs.existsSync(configPath)
-      ? require(configPath)
-      : {}
+  const configEntryPath = tryResolve(context, './gridsome.config')
+  const serverEntryPath = tryResolve(context, './gridsome.server')
+  const isTS = string => /\.ts$/.test(String(string))
+
+  if ([configEntryPath, serverEntryPath].filter(isTS).length) {
+    console.log(
+      chalk.yellow('warn'),
+      '- TypeScript support for the config and server entries is experimental and may introduce breaking changes at any time.\n'
+    )
+    registerTsExtension()
+  }
+
+  const localConfig = options.config || options.localConfig || {}
+
+  if (!options.localConfig && configEntryPath) {
+    Object.assign(localConfig, requireEsModule(configEntryPath))
+  }
 
   // use provided plugins instead of local plugins
   if (Array.isArray(options.plugins)) {
@@ -65,16 +90,20 @@ module.exports = async (context, options = {}) => {
     })
   }
 
-  // add project root as plugin
-  plugins.push(context)
+  // add server entry as plugin
+  if (serverEntryPath) {
+    plugins.push(requireEsModule(serverEntryPath))
+  }
 
   const assetsDir = localConfig.assetsDir || 'assets'
 
   config.context = context
+  config.configPath = configEntryPath
   config.mode = options.mode || 'production'
   config.pkg = options.pkg || resolvePkg(context)
   config.host = args.host || localConfig.host || undefined
   config.port = parseInt(args.port || localConfig.port, 10) || undefined
+  config.cache = args.cache !== false
   config.https = args.https
   config.plugins = normalizePlugins(context, plugins)
   config.redirects = normalizeRedirects(localConfig)
@@ -84,26 +113,27 @@ module.exports = async (context, options = {}) => {
   config.publicPath = config.pathPrefix ? `${config.pathPrefix}/` : '/'
   config.staticDir = resolve('static')
 
-  // TODO: remove outDir before 1.0
-  config.outputDir = resolve(localConfig.outputDir || localConfig.outDir || 'dist')
-  config.outDir = config.outputDir
-  deprecate.property(config, 'outDir', 'The outDir config is renamed to outputDir.')
-  if (localConfig.outDir) {
-    deprecate(`The outDir config is renamed to outputDir.`, {
-      customCaller: ['gridsome.config.js']
-    })
-  }
-
+  config.outputDir = resolve(localConfig.outputDir || 'dist')
+  config.emptyOutputDir = localConfig.emptyOutputDir !== false
   config.assetsDir = path.join(config.outputDir, assetsDir)
   config.imagesDir = path.join(config.assetsDir, 'static')
   config.filesDir = path.join(config.assetsDir, 'files')
   config.dataDir = path.join(config.assetsDir, 'data')
   config.appPath = path.resolve(__dirname, '../../app')
 
-  // Cache
-  config.cacheDir = resolve('node_modules/.cache/gridsome')
+  // Cache paths
+
+  if (localConfig._tmpDir) {
+    config.cacheDir = path.resolve(context, localConfig._tmpDir)
+  } else if (process.versions.pnp === '1') {
+    config.cacheDir = resolve('.pnp/.cache/gridsome')
+  } else if (process.versions.pnp === '3') {
+    config.cacheDir = resolve('.yarn/.cache/gridsome')
+  } else {
+    config.cacheDir = resolve('node_modules/.cache/gridsome')
+  }
+
   config.appCacheDir = path.join(config.cacheDir, 'app')
-  config.imageCacheDir = path.join(config.cacheDir, 'assets')
 
   config.maxImageWidth = localConfig.maxImageWidth || 2560
   config.imageExtensions = SUPPORTED_IMAGE_TYPES
@@ -117,7 +147,6 @@ module.exports = async (context, options = {}) => {
   config.chainWebpack = localConfig.chainWebpack
   config.configureWebpack = localConfig.configureWebpack
   config.configureServer = localConfig.configureServer
-
 
   if (!colorString.get(config.images.backgroundColor || '')) {
     config.images.backgroundColor = null
@@ -137,14 +166,6 @@ module.exports = async (context, options = {}) => {
   config.titleTemplate = localConfig.titleTemplate || `%s - ${config.siteName}`
   config.siteDescription = localConfig.siteDescription || ''
   config.metadata = localConfig.metadata || {}
-
-  // TODO: remove before 1.0
-  if (localConfig.metaData) {
-    deprecate(`The metaData config is renamed to metadata.`, {
-      customCaller: ['gridsome.config.js']
-    })
-    config.metadata = localConfig.metaData
-  }
 
   config.manifestsDir = path.join(config.assetsDir, 'manifest')
   config.clientManifestPath = path.join(config.manifestsDir, 'client.json')
@@ -169,22 +190,54 @@ module.exports = async (context, options = {}) => {
   return config
 }
 
-function resolveEnv (context) {
-  const env = process.env.NODE_ENV || 'development'
-  const envPath = path.resolve(context, '.env')
-  const envPathByMode = path.resolve(context, `.env.${env}`)
-  const readPath = fs.existsSync(envPathByMode) ? envPathByMode : envPath
+function registerTsExtension() {
+  const { transformSync } = require('esbuild')
+  const { extensions } = require
 
-  let parsed = {}
-  try {
-    parsed = dotenv.parse(fs.readFileSync(readPath, 'utf8'))
-  } catch (err) {
-    if (err.code !== 'ENOENT') {
-      console.error('There was a problem processing the .env file', err)
+  const loader = extensions['.ts'] || extensions['.js']
+
+  extensions['.ts'] = (module, filename) => {
+    const _compile = module._compile
+
+    module._compile = function(rawSource, filename) {
+      const url = JSON.stringify(`file://${filename}`)
+      const source = rawSource.replace(/\bimport\.meta\.url\b/g, url)
+      const { code } = transformSync(source, { loader: 'ts', format: 'cjs' })
+
+      _compile.call(this, code, filename)
+    }
+
+    loader(module, filename)
+  }
+}
+
+function resolveEnv(context) {
+  const mode = process.env.NODE_ENV || 'development'
+  const envFiles = [
+    /** default file */ `.env`,
+    /** local file */ `.env.local`,
+    /** mode file */ `.env.${mode}`,
+    /** mode local file */ `.env.${mode}.local`
+  ].map(p => path.resolve(context, p))
+
+  const variables = {}
+
+  for (const file of envFiles) {
+    try {
+      const parsed = dotenv.parse(fs.readFileSync(file), {
+        debug: !!process.env.DEBUG || undefined
+      })
+
+      Object.assign(variables, parsed)
+    } catch (err) {
+      if (err.code !== 'ENOENT')
+        console.error(`There was a problem processing the ${file} file`, err)
     }
   }
 
-  return parsed
+  // Existing environment variables have precedence
+  // https://12factor.net/config
+  return Object.assign(variables, process.env)
 }
 
 function resolvePkg (context) {
@@ -401,10 +454,13 @@ function resolvePluginEntries (id, context) {
     dirName = id
   } else if (id.startsWith('~/')) {
     dirName = path.join(context, id.replace(/^~\//, ''))
+    deprecate(`The ~ alias for plugin paths is deprecated. Use a relative path instead.`, {
+      customCaller: ['gridsome.config.js']
+    })
+  } else if (id.startsWith('.')) {
+    dirName = resolve(context, id)
   } else {
-    // TODO: Replace with require.resolve(id, { paths: [context] }) when support for node is >= v8.9.0
-    // https://nodejs.org/api/modules.html#modules_require_resolve_request_options
-    const resolvedPath = require('resolve-from')(context, id)
+    const resolvedPath = require.resolve(id, { paths: [context] })
     dirName = path.dirname(resolvedPath)
   }
 
@@ -496,6 +552,7 @@ function normalizeImages (config = {}) {
       defaultQuality: Joi.number().default(75).min(0).max(100),
       backgroundColor: Joi.string().allow(null).default(null),
       defaultBlur: Joi.number().default(defaultPlaceholder.defaultBlur),
+      purge: Joi.boolean().default(true),
       placeholder: Joi.alternatives()
         .default(defaultPlaceholder)
         .try([

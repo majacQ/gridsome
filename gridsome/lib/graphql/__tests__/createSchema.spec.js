@@ -955,8 +955,8 @@ test('merge object types', async () => {
   expect(fields.authorId).toBeDefined()
   expect(metaFields.id).toBeDefined()
   expect(metaFields.status).toBeDefined()
-  expect(metaFields.status.extensions.directives).toHaveLength(1)
-  expect(metaFields.status.extensions.directives[0]).toMatchObject({ name: 'proxy', args: { from: 'bar' } })
+  expect(metaFields.status.directives).toHaveLength(1)
+  expect(metaFields.status.directives[0]).toMatchObject({ name: 'proxy', args: { from: 'bar' } })
   expect(postMetaComposer.getExtensions().foo).toBeDefined()
   expect(postMetaComposer.getExtensions().bar).toBeDefined()
 })
@@ -1230,21 +1230,6 @@ test('add custom scalar types with createScalarType()', async () => {
 
   expect(errors).toBeUndefined()
   expect(data.album.myField).toMatchObject({ test: true, foo: 'bar' })
-})
-
-// TODO: remove this before 1.0
-test('add deprecated collection field', async () => {
-  const app = await createApp(api => {
-    api.loadSource(store => store.addCollection('test_post'))
-  })
-
-  const queryType = app.schema.getSchema().getQueryType()
-  const queryFields = queryType.getFields()
-
-  expect(queryFields).toHaveProperty('testPost')
-  expect(queryFields).toHaveProperty('allTestPost')
-  expect(queryFields).toHaveProperty('alltest_post')
-  expect(queryFields.alltest_post.isDeprecated).toEqual(true)
 })
 
 function createApp (plugin, phase = BOOTSTRAP_PAGES) {

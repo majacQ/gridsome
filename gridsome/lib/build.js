@@ -1,3 +1,4 @@
+const path = require('path')
 const fs = require('fs-extra')
 const pMap = require('p-map')
 const hirestime = require('hirestime')
@@ -19,7 +20,9 @@ module.exports = async (context, args) => {
 
   await app.plugins.run('beforeBuild', { context, config })
 
-  await fs.emptyDir(config.outputDir)
+  if (config.emptyOutputDir) {
+    await fs.emptyDir(config.outputDir)
+  }
 
   const stats = await runWebpack(app)
   const hashString = config.cacheBusting ? stats.hash : 'gridsome'
@@ -54,19 +57,14 @@ module.exports = async (context, args) => {
 
 async function runWebpack (app) {
   const compileTime = hirestime()
-  const { removeStylesJsChunk } = require('./webpack/utils')
 
   if (!process.stdout.isTTY) {
-    info(`Compiling assets...`)
+    log(`Compiling assets...`)
   }
 
   const stats = await app.compiler.run()
 
-  if (app.config.css.split !== true) {
-    await removeStylesJsChunk(stats, app.config.outputDir)
-  }
-
-  info(`Compile assets - ${compileTime(hirestime.S)}s`)
+  log(`Compile assets - ${compileTime(hirestime.S)}s`)
 
   return stats
 }
@@ -96,7 +94,7 @@ async function renderHTML (renderQueue, app, hash) {
 
   worker.end()
 
-  info(`Render HTML (${renderQueue.length} files) - ${timer(hirestime.S)}s`)
+  log(`Render HTML (${renderQueue.length} files) - ${timer(hirestime.S)}s`)
 }
 
 async function processFiles (files) {
@@ -107,7 +105,7 @@ async function processFiles (files) {
     await fs.copy(file.filePath, file.destPath)
   }
 
-  info(`Process files (${totalFiles} files) - ${timer(hirestime.S)}s`)
+  log(`Process files (${totalFiles} files) - ${timer(hirestime.S)}s`)
 }
 
 async function processImages (images, config) {
@@ -118,6 +116,10 @@ async function processImages (images, config) {
   const totalAssets = images.queue.length
   const totalJobs = chunks.length
 
+  const existingImages = !config.emptyOutputDir
+    ? await fs.readdir(config.imagesDir)
+    : []
+
   let progress = 0
 
   writeLine(`Processing images (${totalAssets} images) - 0%`)
@@ -126,9 +128,7 @@ async function processImages (images, config) {
     await pMap(chunks, async queue => {
       await worker.process({
         queue,
-        outputDir: config.outputDir,
         context: config.context,
-        cacheDir: config.imageCacheDir,
         imagesConfig: config.images
       })
 
@@ -144,4 +144,17 @@ async function processImages (images, config) {
   worker.end()
 
   writeLine(`Process images (${totalAssets} images) - ${timer(hirestime.S)}s\n`)
+
+  // Remove images that existed before this build started but isn't in use.
+  if (config.images.purge && existingImages.length) {
+    const newImages = images.queue.map((c) => path.basename(c.destPath))
+    const extraImages = existingImages.filter((value) => !newImages.includes(value))
+
+    if (extraImages.length) {
+      for (const filename of extraImages) {
+        await fs.remove(path.join(config.imagesDir, filename))
+      }
+      info(`- Deleted ${extraImages.length} images that where no longer in use`)
+    }
+  }
 }

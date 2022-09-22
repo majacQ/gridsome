@@ -1,9 +1,8 @@
+const fs = require('fs-extra')
 const chalk = require('chalk')
 const createHTMLRenderer = require('./createHTMLRenderer')
 const { createBundleRenderer } = require('vue-server-renderer')
 const { error } = require('../utils/log')
-
-const MAX_STATE_SIZE = 25000
 
 module.exports = function createRenderFn ({
   htmlTemplate,
@@ -24,11 +23,15 @@ module.exports = function createRenderFn ({
     basedir: __dirname
   })
 
-  return async function render(page, state, stateSize, hash) {
+  return async function render(page, hash) {
+    const pageData = page.dataOutput
+      ? await fs.readFile(page.dataOutput, 'utf8')
+      : JSON.stringify({ hash })
+
     const context = {
       path: page.path,
       location: page.location,
-      state: createState(state)
+      state: JSON.parse(pageData)
     }
 
     let app = ''
@@ -47,7 +50,6 @@ module.exports = function createRenderFn ({
 
     const pageTitle = inject.title.text()
     const metaBase = inject.base.text()
-    const gridsomeHash = `<meta name="gridsome:hash" content="${hash}">`
     const vueMetaTags = inject.meta.text()
     const vueMetaLinks = inject.link.text()
     const styles = context.renderStyles()
@@ -60,7 +62,6 @@ module.exports = function createRenderFn ({
       '' +
       pageTitle +
       metaBase +
-      gridsomeHash +
       vueMetaTags +
       vueMetaLinks +
       resourceHints +
@@ -69,9 +70,12 @@ module.exports = function createRenderFn ({
       vueMetaScripts +
       noscript
 
-    const renderedState = state && stateSize <= MAX_STATE_SIZE
-      ? context.renderState()
-      : ''
+    if (pageData.length > 25000) {
+      delete context.state.data
+      delete context.state.context
+    }
+
+    const renderedState = context.renderState()
 
     const scripts = '' +
       renderedState +
@@ -84,7 +88,6 @@ module.exports = function createRenderFn ({
         head,
         title: pageTitle,
         base: metaBase,
-        hash: gridsomeHash,
         vueMetaTags,
         vueMetaLinks,
         resourceHints,
@@ -95,12 +98,5 @@ module.exports = function createRenderFn ({
         app,
         scripts
       })
-  }
-}
-
-function createState (state = {}) {
-  return {
-    data: state.data || null,
-    context: state.context || {}
   }
 }

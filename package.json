@@ -2,13 +2,15 @@
   "private": true,
   "workspaces": [
     "gridsome",
+    "playground",
     "packages/*",
     "projects/*"
   ],
   "scripts": {
     "bootstrap": "lerna bootstrap",
-    "test:unit": "node scripts/test.js",
-    "test:e2e": "node scripts/test.js --e2e",
+    "test:unit": "GRIDSOME_TEST=unit jest --runInBand",
+    "test:e2e": "GRIDSOME_TEST=e2e jest --runInBand",
+    "test:pnp": "node scripts/pnp-test.js",
     "changelog": "node scripts/changelog.js",
     "lint": "eslint \"@(gridsome|packages)/**/*.js\""
   },
@@ -20,17 +22,17 @@
     "eslint": "^5.2.0",
     "eslint-plugin-import": "^2.17.3",
     "eslint-plugin-node": "^7.0.1",
-    "eslint-plugin-vue": "^4.7.1",
+    "eslint-plugin-vue": "^9.3.0",
     "eslint-plugin-vue-libs": "^3.0.0",
-    "execa": "^1.0.0",
-    "jest": "^24.1.0",
+    "execa": "^6.0.0",
+    "jest": "^27.4.7",
     "lerna": "^3.22.0",
     "minimist": "^1.2.0",
-    "puppeteer": "^5.5.0",
-    "supertest": "^4.0.2"
+    "puppeteer": "^13.1.3",
+    "supertest": "^6.2.2"
   },
   "engines": {
-    "node": ">=8.3",
+    "node": "^12.13.0 || ^14.0.0 || >=16.0.0",
     "yarn": "^1.5.1"
   }
 }
